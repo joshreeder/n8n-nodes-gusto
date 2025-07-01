@@ -1,0 +1,629 @@
+{
+  "name": "ERPNext: Employee Onboarding from Gusto",
+  "description": "Automatically create employees in ERPNext when they are added to Gusto. Includes department/designation auto-creation.",
+  "nodes": [
+    {
+      "parameters": {
+        "events": [
+          "employee.created"
+        ],
+        "options": {
+          "verifySignature": true
+        }
+      },
+      "id": "webhook-trigger",
+      "name": "Gusto: New Employee",
+      "type": "n8n-nodes-gusto.gustoTrigger",
+      "typeVersion": 1,
+      "position": [200, 300],
+      "credentials": {
+        "gustoOAuth2Api": "gusto-credentials"
+      }
+    },
+    {
+      "parameters": {
+        "resource": "employee",
+        "operation": "get",
+        "employeeId": "={{$json.body.employee.uuid}}"
+      },
+      "id": "get-employee",
+      "name": "Get Full Employee Data",
+      "type": "n8n-nodes-gusto.gusto",
+      "typeVersion": 1,
+      "position": [400, 300],
+      "credentials": {
+        "gustoOAuth2Api": "gusto-credentials"
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{$parameter.erpnext_url}}/api/resource/Department/{{encodeURIComponent($json.department || 'General')}}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        }
+      },
+      "id": "check-department",
+      "name": "Check Department Exists",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [600, 200],
+      "continueOnFail": true,
+      "credentials": {
+        "httpHeaderAuth": "erpnext-api"
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "dept-not-found",
+              "leftValue": "={{$json.httpCode}}",
+              "rightValue": 404,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "dept-if",
+      "name": "Department Missing?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [800, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{$parameter.erpnext_url}}/api/resource/Department",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"data\": {\n    \"department_name\": \"{{$node['Get Full Employee Data'].json.department || 'General'}}\",\n    \"is_group\": 0\n  }\n}",
+        "options": {}
+      },
+      "id": "create-department",
+      "name": "Create Department",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1000, 120],
+      "credentials": {
+        "httpHeaderAuth": "erpnext-api"
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{$parameter.erpnext_url}}/api/resource/Designation/{{encodeURIComponent($node['Get Full Employee Data'].json.job_title || 'Employee')}}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "check-designation",
+      "name": "Check Designation Exists",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [600, 400],
+      "continueOnFail": true,
+      "credentials": {
+        "httpHeaderAuth": "erpnext-api"
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "desig-not-found",
+              "leftValue": "={{$json.httpCode}}",
+              "rightValue": 404,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "desig-if",
+      "name": "Designation Missing?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [800, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{$parameter.erpnext_url}}/api/resource/Designation",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"data\": {\n    \"designation_name\": \"{{$node['Get Full Employee Data'].json.job_title || 'Employee'}}\"\n  }\n}",
+        "options": {}
+      },
+      "id": "create-designation",
+      "name": "Create Designation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1000, 480],
+      "credentials": {
+        "httpHeaderAuth": "erpnext-api"
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "multiplex",
+        "options": {}
+      },
+      "id": "merge-checks",
+      "name": "Merge Department & Designation",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [1200, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "employee-id",
+              "name": "employee",
+              "value": "={{$node['Get Full Employee Data'].json.uuid}}",
+              "type": "string"
+            },
+            {
+              "id": "first-name",
+              "name": "first_name",
+              "value": "={{$node['Get Full Employee Data'].json.first_name}}",
+              "type": "string"
+            },
+            {
+              "id": "last-name",
+              "name": "last_name",
+              "value": "={{$node['Get Full Employee Data'].json.last_name}}",
+              "type": "string"
+            },
+            {
+              "id": "email",
+              "name": "personal_email",
+              "value": "={{$node['Get Full Employee Data'].json.email}}",
+              "type": "string"
+            },
+            {
+              "id": "work-email",
+              "name": "company_email", 
+              "value": "={{$node['Get Full Employee Data'].json.work_email || $node['Get Full Employee Data'].json.email}}",
+              "type": "string"
+            },
+            {
+              "id": "company",
+              "name": "company",
+              "value": "={{$parameter.company_name}}",
+              "type": "string"
+            },
+            {
+              "id": "status",
+              "name": "status",
+              "value": "Active",
+              "type": "string"
+            },
+            {
+              "id": "join-date",
+              "name": "date_of_joining",
+              "value": "={{$node['Get Full Employee Data'].json.start_date}}",
+              "type": "string"
+            },
+            {
+              "id": "department",
+              "name": "department",
+              "value": "={{$node['Get Full Employee Data'].json.department || 'General'}}",
+              "type": "string"
+            },
+            {
+              "id": "designation",
+              "name": "designation",
+              "value": "={{$node['Get Full Employee Data'].json.job_title || 'Employee'}}",
+              "type": "string"
+            },
+            {
+              "id": "birth-date",
+              "name": "date_of_birth",
+              "value": "={{$node['Get Full Employee Data'].json.date_of_birth}}",
+              "type": "string"
+            },
+            {
+              "id": "phone",
+              "name": "cell_number",
+              "value": "={{$node['Get Full Employee Data'].json.phone}}",
+              "type": "string"
+            },
+            {
+              "id": "gusto-id",
+              "name": "custom_gusto_employee_id",
+              "value": "={{$node['Get Full Employee Data'].json.uuid}}",
+              "type": "string"
+            },
+            {
+              "id": "sync-date",
+              "name": "custom_gusto_sync_date",
+              "value": "={{$now}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "transform-employee",
+      "name": "Transform to ERPNext Employee",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [1400, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$parameter.erpnext_url}}/api/resource/Employee?filters=[[\"employee\",\"=\",\"{{$json.employee}}\"]]",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "check-employee",
+      "name": "Check Employee Exists",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1600, 300],
+      "continueOnFail": true,
+      "credentials": {
+        "httpHeaderAuth": "erpnext-api"
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "emp-exists",
+              "leftValue": "={{$json.data && $json.data.length > 0}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "employee-if",
+      "name": "Employee Already Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1800, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$parameter.erpnext_url}}/api/resource/Employee",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"data\": {{JSON.stringify($node['Transform to ERPNext Employee'].json)}}\n}",
+        "options": {}
+      },
+      "id": "create-employee",
+      "name": "Create ERPNext Employee",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2000, 200],
+      "credentials": {
+        "httpHeaderAuth": "erpnext-api"
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "result",
+              "name": "result",
+              "value": "Employee already exists in ERPNext",
+              "type": "string"
+            },
+            {
+              "id": "employee-id",
+              "name": "employee_id",
+              "value": "={{$node['Transform to ERPNext Employee'].json.employee}}",
+              "type": "string"
+            },
+            {
+              "id": "action",
+              "name": "action",
+              "value": "skipped",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "skip-message",
+      "name": "Set Skip Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [2000, 400]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "result",
+              "name": "result",
+              "value": "Successfully created employee in ERPNext",
+              "type": "string"
+            },
+            {
+              "id": "employee-id",
+              "name": "employee_id",
+              "value": "={{$json.data.name}}",
+              "type": "string"
+            },
+            {
+              "id": "employee-name",
+              "name": "employee_name",
+              "value": "={{$json.data.employee_name}}",
+              "type": "string"
+            },
+            {
+              "id": "action",
+              "name": "action",
+              "value": "created",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "success-message",
+      "name": "Set Success Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [2200, 200]
+    }
+  ],
+  "connections": {
+    "Gusto: New Employee": {
+      "main": [
+        [
+          {
+            "node": "Get Full Employee Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Full Employee Data": {
+      "main": [
+        [
+          {
+            "node": "Check Department Exists",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check Designation Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Department Exists": {
+      "main": [
+        [
+          {
+            "node": "Department Missing?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Department Missing?": {
+      "main": [
+        [
+          {
+            "node": "Create Department",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge Department & Designation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Department": {
+      "main": [
+        [
+          {
+            "node": "Merge Department & Designation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Designation Exists": {
+      "main": [
+        [
+          {
+            "node": "Designation Missing?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Designation Missing?": {
+      "main": [
+        [
+          {
+            "node": "Create Designation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge Department & Designation",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Create Designation": {
+      "main": [
+        [
+          {
+            "node": "Merge Department & Designation",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Department & Designation": {
+      "main": [
+        [
+          {
+            "node": "Transform to ERPNext Employee",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform to ERPNext Employee": {
+      "main": [
+        [
+          {
+            "node": "Check Employee Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Employee Exists": {
+      "main": [
+        [
+          {
+            "node": "Employee Already Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Employee Already Exists?": {
+      "main": [
+        [
+          {
+            "node": "Set Skip Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create ERPNext Employee",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create ERPNext Employee": {
+      "main": [
+        [
+          {
+            "node": "Set Success Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "executionTimeout": 3600,
+    "timezone": "America/New_York"
+  },
+  "staticData": {},
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "gusto",
+      "name": "gusto"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z", 
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "erpnext",
+      "name": "erpnext"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "1"
+} 

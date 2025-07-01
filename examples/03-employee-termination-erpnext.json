@@ -1,0 +1,686 @@
+{
+  "name": "ERPNext: Employee Termination from Gusto",
+  "description": "Automatically update employee status to 'Left' in ERPNext when employees are terminated in Gusto. Includes exit process handling.",
+  "nodes": [
+    {
+      "parameters": {
+        "events": [
+          "employee.terminated"
+        ],
+        "options": {
+          "verifySignature": true
+        }
+      },
+      "id": "termination-trigger",
+      "name": "Gusto: Employee Terminated",
+      "type": "n8n-nodes-gusto.gustoTrigger",
+      "typeVersion": 1,
+      "position": [200, 300],
+      "credentials": {
+        "gustoOAuth2Api": "gusto-credentials"
+      }
+    },
+    {
+      "parameters": {
+        "resource": "employee",
+        "operation": "get",
+        "employeeId": "={{$json.body.employee.uuid}}"
+      },
+      "id": "get-employee-details",
+      "name": "Get Employee Details",
+      "type": "n8n-nodes-gusto.gusto",
+      "typeVersion": 1,
+      "position": [400, 300],
+      "credentials": {
+        "gustoOAuth2Api": "gusto-credentials"
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{$parameter.erpnext_url}}/api/resource/Employee?filters=[[\"employee\",\"=\",\"{{$json.uuid}}\"]]",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "check-employee-exists",
+      "name": "Check Employee in ERPNext",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [600, 300],
+      "credentials": {
+        "httpHeaderAuth": "erpnext-api"
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "emp-found",
+              "leftValue": "={{$json.data && $json.data.length > 0}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "employee-exists-if",
+      "name": "Employee Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [800, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "status",
+              "value": "Left",
+              "type": "string"
+            },
+            {
+              "id": "relieving-date",
+              "name": "relieving_date",
+              "value": "={{$node['Gusto: Employee Terminated'].json.body.termination.effective_date}}",
+              "type": "string"
+            },
+            {
+              "id": "termination-reason",
+              "name": "custom_termination_reason",
+              "value": "={{$node['Gusto: Employee Terminated'].json.body.termination.reason || 'Voluntary'}}",
+              "type": "string"
+            },
+            {
+              "id": "final-work-date",
+              "name": "custom_final_work_date",
+              "value": "={{$node['Gusto: Employee Terminated'].json.body.termination.effective_date}}",
+              "type": "string"
+            },
+            {
+              "id": "gusto-sync-date",
+              "name": "custom_gusto_sync_date",
+              "value": "={{$now}}",
+              "type": "string"
+            },
+            {
+              "id": "termination-notes",
+              "name": "custom_termination_notes",
+              "value": "Automatically updated from Gusto termination process",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "prepare-termination-data",
+      "name": "Prepare Termination Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [1000, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{$parameter.erpnext_url}}/api/resource/Employee/{{$node['Check Employee in ERPNext'].json.data[0].name}}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "requestMethod": "PUT",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"data\": {{JSON.stringify($json)}}\n}",
+        "options": {}
+      },
+      "id": "update-employee-status",
+      "name": "Update Employee Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1200, 200],
+      "credentials": {
+        "httpHeaderAuth": "erpnext-api"
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{$parameter.erpnext_url}}/api/resource/Salary Slip?filters=[[\"employee\",\"=\",\"{{$node['Get Employee Details'].json.uuid}}\"],[\"docstatus\",\"=\",0]]",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "check-draft-salary-slips",
+      "name": "Check Draft Salary Slips",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1400, 200],
+      "continueOnFail": true,
+      "credentials": {
+        "httpHeaderAuth": "erpnext-api"
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-drafts",
+              "leftValue": "={{$json.data && $json.data.length > 0}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "has-draft-slips-if",
+      "name": "Has Draft Salary Slips?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1600, 200]
+    },
+    {
+      "parameters": {
+        "fieldName": "data"
+      },
+      "id": "split-salary-slips",
+      "name": "Split Salary Slips",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1800, 120]
+    },
+    {
+      "parameters": {
+        "url": "={{$parameter.erpnext_url}}/api/resource/Salary Slip/{{$json.name}}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "requestMethod": "DELETE",
+        "options": {}
+      },
+      "id": "cancel-salary-slip",
+      "name": "Cancel Draft Salary Slip",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2000, 120],
+      "continueOnFail": true,
+      "credentials": {
+        "httpHeaderAuth": "erpnext-api"
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cancelled-slip",
+              "name": "cancelled_salary_slip",
+              "value": "={{$json.name}}",
+              "type": "string"
+            },
+            {
+              "id": "action",
+              "name": "action",
+              "value": "cancelled",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "log-cancellation",
+      "name": "Log Cancellation",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [2200, 120]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "no-drafts",
+              "name": "message",
+              "value": "No draft salary slips to cancel",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "no-drafts-message",
+      "name": "No Drafts Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [1800, 280]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "error-msg",
+              "name": "error",
+              "value": "Employee not found in ERPNext",
+              "type": "string"
+            },
+            {
+              "id": "gusto-id",
+              "name": "gusto_employee_id",
+              "value": "={{$node['Get Employee Details'].json.uuid}}",
+              "type": "string"
+            },
+            {
+              "id": "action",
+              "name": "action",
+              "value": "error",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "employee-not-found-error",
+      "name": "Employee Not Found Error",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [1000, 400]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition",
+        "options": {}
+      },
+      "id": "merge-termination-results",
+      "name": "Merge Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [2400, 200]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "success-msg",
+              "name": "result",
+              "value": "Successfully processed employee termination",
+              "type": "string"
+            },
+            {
+              "id": "employee-id",
+              "name": "employee_id",
+              "value": "={{$node['Get Employee Details'].json.uuid}}",
+              "type": "string"
+            },
+            {
+              "id": "employee-name",
+              "name": "employee_name",
+              "value": "={{$node['Get Employee Details'].json.first_name}} {{$node['Get Employee Details'].json.last_name}}",
+              "type": "string"
+            },
+            {
+              "id": "termination-date",
+              "name": "termination_date",
+              "value": "={{$node['Prepare Termination Data'].json.relieving_date}}",
+              "type": "string"
+            },
+            {
+              "id": "updated-in-erpnext",
+              "name": "erpnext_updated",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "action",
+              "name": "action",
+              "value": "terminated",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "create-success-summary",
+      "name": "Create Success Summary",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [2600, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{$parameter.erpnext_url}}/api/resource/Leave Application?filters=[[\"employee\",\"=\",\"{{$node['Get Employee Details'].json.uuid}}\"],[\"status\",\"=\",\"Open\"]]",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "check-open-leave-applications",
+      "name": "Check Open Leave Applications",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1400, 300],
+      "continueOnFail": true,
+      "credentials": {
+        "httpHeaderAuth": "erpnext-api"
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-leave",
+              "leftValue": "={{$json.data && $json.data.length > 0}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "has-leave-apps-if",
+      "name": "Has Open Leave Applications?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1600, 300]
+    },
+    {
+      "parameters": {
+        "fieldName": "data"
+      },
+      "id": "split-leave-applications",
+      "name": "Split Leave Applications",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1800, 380]
+    },
+    {
+      "parameters": {
+        "url": "={{$parameter.erpnext_url}}/api/resource/Leave Application/{{$json.name}}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "requestMethod": "PUT",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"data\": {\n    \"status\": \"Cancelled\",\n    \"workflow_state\": \"Cancelled\"\n  }\n}",
+        "options": {}
+      },
+      "id": "cancel-leave-application",
+      "name": "Cancel Leave Application",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2000, 380],
+      "continueOnFail": true,
+      "credentials": {
+        "httpHeaderAuth": "erpnext-api"
+      }
+    }
+  ],
+  "connections": {
+    "Gusto: Employee Terminated": {
+      "main": [
+        [
+          {
+            "node": "Get Employee Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Employee Details": {
+      "main": [
+        [
+          {
+            "node": "Check Employee in ERPNext",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Employee in ERPNext": {
+      "main": [
+        [
+          {
+            "node": "Employee Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Employee Found?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Termination Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Employee Not Found Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Termination Data": {
+      "main": [
+        [
+          {
+            "node": "Update Employee Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Employee Status": {
+      "main": [
+        [
+          {
+            "node": "Check Draft Salary Slips",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check Open Leave Applications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Draft Salary Slips": {
+      "main": [
+        [
+          {
+            "node": "Has Draft Salary Slips?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Draft Salary Slips?": {
+      "main": [
+        [
+          {
+            "node": "Split Salary Slips",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Drafts Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Salary Slips": {
+      "main": [
+        [
+          {
+            "node": "Cancel Draft Salary Slip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancel Draft Salary Slip": {
+      "main": [
+        [
+          {
+            "node": "Log Cancellation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Cancellation": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Drafts Message": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Employee Not Found Error": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge Results": {
+      "main": [
+        [
+          {
+            "node": "Create Success Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Open Leave Applications": {
+      "main": [
+        [
+          {
+            "node": "Has Open Leave Applications?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Open Leave Applications?": {
+      "main": [
+        [
+          {
+            "node": "Split Leave Applications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Leave Applications": {
+      "main": [
+        [
+          {
+            "node": "Cancel Leave Application",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "executionTimeout": 3600,
+    "timezone": "America/New_York"
+  },
+  "staticData": {},
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "gusto",
+      "name": "gusto"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "erpnext",
+      "name": "erpnext"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "termination",
+      "name": "termination"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "1"
+} 

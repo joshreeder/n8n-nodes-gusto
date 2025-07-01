@@ -1,0 +1,613 @@
+{
+  "name": "ERPNext: Payroll Processing from Gusto",
+  "description": "Automatically create salary slips in ERPNext when payroll is processed in Gusto. Handles multiple employees and batch processing.",
+  "nodes": [
+    {
+      "parameters": {
+        "events": [
+          "payroll.processed"
+        ],
+        "options": {
+          "verifySignature": true
+        }
+      },
+      "id": "payroll-trigger",
+      "name": "Gusto: Payroll Processed",
+      "type": "n8n-nodes-gusto.gustoTrigger",
+      "typeVersion": 1,
+      "position": [200, 300],
+      "credentials": {
+        "gustoOAuth2Api": "gusto-credentials"
+      }
+    },
+    {
+      "parameters": {
+        "resource": "payroll",
+        "operation": "get",
+        "payrollId": "={{$json.body.payroll.uuid}}"
+      },
+      "id": "get-payroll",
+      "name": "Get Full Payroll Data",
+      "type": "n8n-nodes-gusto.gusto",
+      "typeVersion": 1,
+      "position": [400, 300],
+      "credentials": {
+        "gustoOAuth2Api": "gusto-credentials"
+      }
+    },
+    {
+      "parameters": {
+        "fieldName": "employee_compensations"
+      },
+      "id": "split-employees",
+      "name": "Split by Employee",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$parameter.erpnext_url}}/api/resource/Employee?filters=[[\"employee\",\"=\",\"{{$json.employee_uuid}}\"]]",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "check-employee-exists",
+      "name": "Verify Employee in ERPNext",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [800, 300],
+      "credentials": {
+        "httpHeaderAuth": "erpnext-api"
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "emp-found",
+              "leftValue": "={{$json.data && $json.data.length > 0}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "employee-exists-if",
+      "name": "Employee Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "employee-ref",
+              "name": "employee",
+              "value": "={{$node['Split by Employee'].json.employee_uuid}}",
+              "type": "string"
+            },
+            {
+              "id": "salary-structure",
+              "name": "salary_structure",
+              "value": "={{$parameter.default_salary_structure || 'Default Salary Structure'}}",
+              "type": "string"
+            },
+            {
+              "id": "company-ref",
+              "name": "company",
+              "value": "={{$parameter.company_name}}",
+              "type": "string"
+            },
+            {
+              "id": "posting-date",
+              "name": "posting_date",
+              "value": "={{$node['Get Full Payroll Data'].json.check_date}}",
+              "type": "string"
+            },
+            {
+              "id": "start-date",
+              "name": "start_date",
+              "value": "={{$node['Get Full Payroll Data'].json.pay_period_start_date}}",
+              "type": "string"
+            },
+            {
+              "id": "end-date",
+              "name": "end_date",
+              "value": "={{$node['Get Full Payroll Data'].json.pay_period_end_date}}",
+              "type": "string"
+            },
+            {
+              "id": "gross-pay",
+              "name": "gross_pay",
+              "value": "={{$node['Split by Employee'].json.gross_pay}}",
+              "type": "number"
+            },
+            {
+              "id": "total-deduction",
+              "name": "total_deduction",
+              "value": "={{($node['Split by Employee'].json.employee_taxes || 0) + ($node['Split by Employee'].json.employee_deductions || 0)}}",
+              "type": "number"
+            },
+            {
+              "id": "net-pay",
+              "name": "net_pay",
+              "value": "={{$node['Split by Employee'].json.net_pay}}",
+              "type": "number"
+            },
+            {
+              "id": "payroll-period",
+              "name": "payroll_period",
+              "value": "={{$node['Get Full Payroll Data'].json.pay_schedule_name || 'Monthly'}}",
+              "type": "string"
+            },
+            {
+              "id": "currency",
+              "name": "currency",
+              "value": "USD",
+              "type": "string"
+            },
+            {
+              "id": "gusto-payroll-id",
+              "name": "custom_gusto_payroll_id",
+              "value": "={{$node['Get Full Payroll Data'].json.uuid}}",
+              "type": "string"
+            },
+            {
+              "id": "gusto-sync-date",
+              "name": "custom_gusto_sync_date",
+              "value": "={{$now}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "transform-salary-slip",
+      "name": "Transform to ERPNext Salary Slip",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [1200, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{$parameter.erpnext_url}}/api/resource/Salary Slip?filters=[[\"employee\",\"=\",\"{{$json.employee}}\"],[\"start_date\",\"=\",\"{{$json.start_date}}\"],[\"end_date\",\"=\",\"{{$json.end_date}}\"]]",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "check-salary-slip",
+      "name": "Check Salary Slip Exists",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1400, 200],
+      "continueOnFail": true,
+      "credentials": {
+        "httpHeaderAuth": "erpnext-api"
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "slip-exists",
+              "leftValue": "={{$json.data && $json.data.length > 0}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "salary-slip-if",
+      "name": "Salary Slip Already Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1600, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{$parameter.erpnext_url}}/api/resource/Salary Slip",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"data\": {{JSON.stringify($node['Transform to ERPNext Salary Slip'].json)}}\n}",
+        "options": {}
+      },
+      "id": "create-salary-slip",
+      "name": "Create ERPNext Salary Slip",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1800, 120],
+      "credentials": {
+        "httpHeaderAuth": "erpnext-api"
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "result",
+              "name": "result",
+              "value": "Salary slip already exists for this period",
+              "type": "string"
+            },
+            {
+              "id": "employee-id",
+              "name": "employee_id",
+              "value": "={{$node['Transform to ERPNext Salary Slip'].json.employee}}",
+              "type": "string"
+            },
+            {
+              "id": "period",
+              "name": "pay_period",
+              "value": "={{$node['Transform to ERPNext Salary Slip'].json.start_date}} to {{$node['Transform to ERPNext Salary Slip'].json.end_date}}",
+              "type": "string"
+            },
+            {
+              "id": "action",
+              "name": "action",
+              "value": "skipped",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "skip-salary-slip",
+      "name": "Set Skip Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [1800, 280]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "error-msg",
+              "name": "error",
+              "value": "Employee not found in ERPNext",
+              "type": "string"
+            },
+            {
+              "id": "employee-id",
+              "name": "gusto_employee_id",
+              "value": "={{$node['Split by Employee'].json.employee_uuid}}",
+              "type": "string"
+            },
+            {
+              "id": "action",
+              "name": "action",
+              "value": "error",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "employee-not-found",
+      "name": "Employee Not Found Error",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [1200, 400]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "result",
+              "name": "result",
+              "value": "Successfully created salary slip in ERPNext",
+              "type": "string"
+            },
+            {
+              "id": "salary-slip-id",
+              "name": "salary_slip_id",
+              "value": "={{$json.data.name}}",
+              "type": "string"
+            },
+            {
+              "id": "employee-id",
+              "name": "employee_id",
+              "value": "={{$json.data.employee}}",
+              "type": "string"
+            },
+            {
+              "id": "gross-pay",
+              "name": "gross_pay",
+              "value": "={{$json.data.gross_pay}}",
+              "type": "number"
+            },
+            {
+              "id": "net-pay",
+              "name": "net_pay",
+              "value": "={{$json.data.net_pay}}",
+              "type": "number"
+            },
+            {
+              "id": "action",
+              "name": "action",
+              "value": "created",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "success-message",
+      "name": "Set Success Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [2000, 120]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition",
+        "options": {}
+      },
+      "id": "merge-results",
+      "name": "Merge All Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [2200, 200]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "summary",
+              "name": "payroll_summary",
+              "value": "=Processed {{ $json.length }} employees for payroll period {{ $node['Get Full Payroll Data'].json.pay_period_start_date }} to {{ $node['Get Full Payroll Data'].json.pay_period_end_date }}",
+              "type": "string"
+            },
+            {
+              "id": "payroll-id",
+              "name": "gusto_payroll_id",
+              "value": "={{$node['Get Full Payroll Data'].json.uuid}}",
+              "type": "string"
+            },
+            {
+              "id": "total-processed",
+              "name": "total_employees_processed",
+              "value": "={{$json.length}}",
+              "type": "number"
+            },
+            {
+              "id": "processed-date",
+              "name": "processed_at",
+              "value": "={{$now}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "final-summary",
+      "name": "Create Final Summary",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [2400, 200]
+    }
+  ],
+  "connections": {
+    "Gusto: Payroll Processed": {
+      "main": [
+        [
+          {
+            "node": "Get Full Payroll Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Full Payroll Data": {
+      "main": [
+        [
+          {
+            "node": "Split by Employee",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split by Employee": {
+      "main": [
+        [
+          {
+            "node": "Verify Employee in ERPNext",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Employee in ERPNext": {
+      "main": [
+        [
+          {
+            "node": "Employee Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Employee Exists?": {
+      "main": [
+        [
+          {
+            "node": "Transform to ERPNext Salary Slip",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Employee Not Found Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform to ERPNext Salary Slip": {
+      "main": [
+        [
+          {
+            "node": "Check Salary Slip Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Salary Slip Exists": {
+      "main": [
+        [
+          {
+            "node": "Salary Slip Already Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Salary Slip Already Exists?": {
+      "main": [
+        [
+          {
+            "node": "Set Skip Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create ERPNext Salary Slip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create ERPNext Salary Slip": {
+      "main": [
+        [
+          {
+            "node": "Set Success Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Success Message": {
+      "main": [
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Skip Message": {
+      "main": [
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Employee Not Found Error": {
+      "main": [
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge All Results": {
+      "main": [
+        [
+          {
+            "node": "Create Final Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "executionTimeout": 3600,
+    "timezone": "America/New_York"
+  },
+  "staticData": {},
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "gusto",
+      "name": "gusto"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "erpnext",
+      "name": "erpnext"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "payroll",
+      "name": "payroll"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "1"
+} 
