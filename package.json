@@ -1,0 +1,67 @@
+{
+  "name": "n8n-nodes-gusto",
+  "version": "1.0.0",
+  "description": "n8n community node for Gusto HR and Payroll API - employee management, payroll processing, and webhook automation",
+      "keywords": [
+    "n8n-community-node-package",
+    "n8n",
+    "gusto",
+    "hr",
+    "payroll",
+    "hrms",
+    "automation",
+    "webhooks",
+    "api"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/joshreeder/n8n-nodes-gusto",
+  "author": {
+    "name": "Josh Reeder",
+    "email": "josh@example.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/joshreeder/n8n-nodes-gusto.git"
+  },
+  "engines": {
+    "node": ">=18.10",
+    "pnpm": ">=8.1"
+  },
+  "packageManager": "pnpm@8.1.0",
+  "main": "index.js",
+  "scripts": {
+    "preinstall": "npx only-allow pnpm",
+    "build": "tsc && gulp build:icons",
+    "dev": "tsc --watch",
+    "format": "prettier nodes credentials --write",
+    "lint": "eslint nodes credentials package.json",
+    "lintfix": "eslint nodes credentials package.json --fix",
+    "prepublishOnly": "npm run build && npm run lint -c .eslintrc.prepublish.js nodes credentials package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/GustoOAuth2Api.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/Gusto/Gusto.node.js",
+      "dist/nodes/GustoTrigger/GustoTrigger.node.js"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^18.16.16",
+    "@typescript-eslint/parser": "^5.45.0",
+    "eslint": "^8.29.0",
+    "eslint-plugin-n8n-nodes-base": "^1.11.0",
+    "gulp": "^4.0.2",
+    "n8n-workflow": "*",
+    "prettier": "^2.7.1",
+    "typescript": "^4.8.4"
+  },
+  "peerDependencies": {
+    "n8n-workflow": "*"
+  }
+} 

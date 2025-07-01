@@ -1,0 +1,45 @@
+# Source files
+credentials/
+nodes/
+*.ts
+tsconfig.json
+
+# Development files
+.github/
+.vscode/
+.idea/
+*.md
+!README.md
+!CHANGELOG.md
+
+# Tests
+test/
+tests/
+*.test.*
+*.spec.*
+
+# Configuration
+.eslintrc.*
+.prettierrc.*
+gulpfile.js
+
+# Git
+.git/
+.gitignore
+
+# Node modules
+node_modules/
+
+# Environment files
+.env*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Build info
+*.tsbuildinfo 

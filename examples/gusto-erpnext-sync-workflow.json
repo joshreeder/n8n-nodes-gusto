@@ -1,0 +1,598 @@
+{
+  "name": "Gusto to ERPNext Sync Workflow",
+  "description": "Complete employee and payroll synchronization from Gusto to ERPNext",
+  "nodes": [
+    {
+      "parameters": {
+        "events": [
+          "employee.created",
+          "employee.updated",
+          "employee.terminated",
+          "payroll.processed"
+        ],
+        "options": {
+          "verifySignature": true
+        }
+      },
+      "name": "Gusto Webhook Trigger",
+      "type": "n8n-nodes-gusto.gustoTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "gusto-webhook-001",
+      "credentials": {
+        "gustoOAuth2Api": {
+          "id": "1",
+          "name": "Gusto Production API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.eventType}}",
+              "operation": "startsWith",
+              "value2": "employee"
+            }
+          ]
+        }
+      },
+      "name": "Is Employee Event?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.eventType}}",
+              "operation": "equal",
+              "value2": "employee.created"
+            }
+          ]
+        }
+      },
+      "name": "Employee Created?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        680,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "employee",
+        "operation": "get",
+        "employeeId": "={{$json.body.employee.uuid}}"
+      },
+      "name": "Get Employee Details",
+      "type": "n8n-nodes-gusto.gusto",
+      "typeVersion": 1,
+      "position": [
+        900,
+        120
+      ],
+      "credentials": {
+        "gustoOAuth2Api": {
+          "id": "1",
+          "name": "Gusto Production API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "doctype",
+              "value": "Employee"
+            },
+            {
+              "name": "first_name",
+              "value": "={{$json.first_name}}"
+            },
+            {
+              "name": "last_name",
+              "value": "={{$json.last_name}}"
+            },
+            {
+              "name": "employee",
+              "value": "={{$json.uuid}}"
+            },
+            {
+              "name": "personal_email",
+              "value": "={{$json.email}}"
+            },
+            {
+              "name": "company",
+              "value": "Your Company Name"
+            },
+            {
+              "name": "status",
+              "value": "Active"
+            }
+          ],
+          "dateTime": [
+            {
+              "name": "date_of_joining",
+              "value": "={{$json.start_date}}"
+            },
+            {
+              "name": "date_of_birth",
+              "value": "={{$json.date_of_birth}}"
+            }
+          ]
+        }
+      },
+      "name": "Transform for ERPNext Employee",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$parameter[\"erpnext_url\"]}}/api/resource/Employee",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "name": "Create ERPNext Employee",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        1340,
+        120
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2",
+          "name": "ERPNext API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.eventType}}",
+              "operation": "equal",
+              "value2": "employee.terminated"
+            }
+          ]
+        }
+      },
+      "name": "Employee Terminated?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "Left"
+            }
+          ],
+          "dateTime": [
+            {
+              "name": "relieving_date",
+              "value": "={{$json.body.termination.effective_date}}"
+            }
+          ]
+        }
+      },
+      "name": "Set Termination Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        900,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$parameter[\"erpnext_url\"]}}/api/resource/Employee/{{$json.body.employee.uuid}}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "requestMethod": "PUT",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "name": "Update ERPNext Employee Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        1120,
+        280
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2",
+          "name": "ERPNext API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.eventType}}",
+              "operation": "equal",
+              "value2": "payroll.processed"
+            }
+          ]
+        }
+      },
+      "name": "Payroll Processed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        460,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "payroll",
+        "operation": "get",
+        "payrollId": "={{$json.body.payroll.uuid}}"
+      },
+      "name": "Get Payroll Details",
+      "type": "n8n-nodes-gusto.gusto",
+      "typeVersion": 1,
+      "position": [
+        680,
+        500
+      ],
+      "credentials": {
+        "gustoOAuth2Api": {
+          "id": "1",
+          "name": "Gusto Production API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "splitInBatches",
+        "batchSize": 1
+      },
+      "name": "Split Employee Payrolls",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [
+        900,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "doctype",
+              "value": "Salary Slip"
+            },
+            {
+              "name": "employee",
+              "value": "={{$json.employee_uuid}}"
+            },
+            {
+              "name": "salary_structure",
+              "value": "Default Salary Structure"
+            },
+            {
+              "name": "company",
+              "value": "Your Company Name"
+            }
+          ],
+          "number": [
+            {
+              "name": "gross_pay",
+              "value": "={{$json.gross_pay}}"
+            },
+            {
+              "name": "total_deduction",
+              "value": "={{$json.employee_taxes + $json.employee_deductions}}"
+            },
+            {
+              "name": "net_pay",
+              "value": "={{$json.net_pay}}"
+            }
+          ],
+          "dateTime": [
+            {
+              "name": "start_date",
+              "value": "={{$json.pay_period_start_date}}"
+            },
+            {
+              "name": "end_date",
+              "value": "={{$json.pay_period_end_date}}"
+            },
+            {
+              "name": "posting_date",
+              "value": "={{$json.processed_date}}"
+            }
+          ]
+        }
+      },
+      "name": "Transform for ERPNext Salary Slip",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$parameter[\"erpnext_url\"]}}/api/resource/Salary Slip",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "name": "Create ERPNext Salary Slip",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        1340,
+        500
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2",
+          "name": "ERPNext API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "message": "Successfully processed Gusto event: {{$json.eventType}} for {{$json.body.employee?.first_name}} {{$json.body.employee?.last_name}}"
+      },
+      "name": "Log Success",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "multiplex",
+        "options": {}
+      },
+      "name": "Merge Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "Gusto Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Is Employee Event?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Payroll Processed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Employee Event?": {
+      "main": [
+        [
+          {
+            "node": "Employee Created?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Employee Terminated?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Employee Created?": {
+      "main": [
+        [
+          {
+            "node": "Get Employee Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Employee Details": {
+      "main": [
+        [
+          {
+            "node": "Transform for ERPNext Employee",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform for ERPNext Employee": {
+      "main": [
+        [
+          {
+            "node": "Create ERPNext Employee",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create ERPNext Employee": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Employee Terminated?": {
+      "main": [
+        [
+          {
+            "node": "Set Termination Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Termination Data": {
+      "main": [
+        [
+          {
+            "node": "Update ERPNext Employee Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update ERPNext Employee Status": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Payroll Processed?": {
+      "main": [
+        [
+          {
+            "node": "Get Payroll Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Payroll Details": {
+      "main": [
+        [
+          {
+            "node": "Split Employee Payrolls",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Employee Payrolls": {
+      "main": [
+        [
+          {
+            "node": "Transform for ERPNext Salary Slip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform for ERPNext Salary Slip": {
+      "main": [
+        [
+          {
+            "node": "Create ERPNext Salary Slip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create ERPNext Salary Slip": {
+      "main": [
+        [
+          {
+            "node": "Log Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Results": {
+      "main": [
+        [
+          {
+            "node": "Log Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "parameters": {
+    "erpnext_url": "https://your-erpnext-instance.com"
+  },
+  "staticData": {},
+  "tags": ["gusto", "erpnext", "hr", "payroll", "sync"],
+  "settings": {
+    "timezone": "America/New_York",
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+} 
